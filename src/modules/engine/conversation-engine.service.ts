@@ -144,7 +144,7 @@ export class ConversationEngine {
       await this.sessions.touch(input.phone);
       // 4.1. Verificação de Interceptação Cognitiva (Mid-session routing via WuzMind)
       const needsAiEvaluation = outputs.some(
-        (out) => out.type === CanonicalOutputType.TEXT && out.text.includes('__WUZMIND_EVALUATE__'),
+        (out) => out.type === CanonicalOutputType.TEXT && out.text?.includes('__WUZMIND_EVALUATE__'),
       );
 
       if (needsAiEvaluation && rawText.length > 0) {
