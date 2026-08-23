@@ -37,8 +37,15 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           password: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            mkdir -p /opt/gastoapp/envs
-            echo "${{ secrets.ENV_FILE_CONTENT }}" > /opt/gastoapp/envs/wuzbot-engine.env
+            PORTAINER_DATA=$(docker volume inspect portainer_data --format '{{.Mountpoint}}' 2>/dev/null || echo '/var/lib/docker/volumes/portainer_data/_data')
+            STACK_DIR=$(grep -rl "wuzbot-engine" $PORTAINER_DATA/compose/*/docker-compose.yml | head -n 1 | xargs dirname)
+            if [ -n "$STACK_DIR" ]; then
+              echo "${{ secrets.ENV_FILE_CONTENT }}" > $STACK_DIR/.env
+              echo "Variáveis salvas no diretório da Stack: $STACK_DIR"
+            else
+              echo "Erro: Stack não encontrada!"
+              exit 1
+            fi
 
       - name: Deploy to Portainer via Webhook
         if: success()

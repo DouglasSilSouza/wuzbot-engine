@@ -8,7 +8,7 @@ services:
     ports:
       - "3001:3000"
     env_file:
-      - /opt/gastoapp/envs/wuzbot-engine.env
+      - .env
 
     networks:
       - ContasNet
