@@ -1,0 +1,61 @@
+services:
+  wuzbot-engine:
+    image: ghcr.io/douglassilsouza/wuzbot-engine:latest
+    container_name: wuzbot-engine
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+
+      DATABASE_URL: ${DATABASE_URL}
+
+      WUZAPI_URL: ${WUZAPI_URL}
+      WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN}
+      WUZAPI_USER_TOKEN: ${WUZAPI_USER_TOKEN}
+      WUZAPI_SEND_URL: ${WUZAPI_SEND_URL}
+      WUZAPI_TEST_PHONE: ${WUZAPI_TEST_PHONE}
+
+      TYPEBOT_BASE_URL: ${TYPEBOT_BASE_URL}
+      TYPEBOT_API_KEY: ${TYPEBOT_API_KEY}
+      TYPEBOT_PUBLIC_ID: ${TYPEBOT_PUBLIC_ID}
+
+      WUZMIND_URL: ${WUZMIND_URL}
+      WUZMIND_API_KEY: ${WUZMIND_API_KEY}
+      WUZMIND_TIMEOUT_MS: ${WUZMIND_TIMEOUT_MS}
+
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL}
+
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    networks:
+      - ContasNet
+
+    deploy:
+      replicas: 1
+
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=ContasNet
+        - traefik.http.routers.wuzbot.rule=Host(`wuzbot.dsilvamoda.cloud`)
+        - traefik.http.routers.wuzbot.entrypoints=websecure
+        - traefik.http.routers.wuzbot.tls=true
+        - traefik.http.routers.wuzbot.tls.certresolver=letsencryptresolver
+        - traefik.http.services.wuzbot.loadbalancer.server.port=3000
+
+volumes:
+  postgres_data:
+
+networks:
+  ContasNet:
+    external: true
+    name: ContasNet
