@@ -38,13 +38,7 @@ jobs:
           password: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             mkdir -p /opt/gastoapp/envs
-            echo "${{ secrets.ENV_FILE_CONTENT }}" > /opt/gastoapp/envs/wuzbot-engine.envLE_CONTENT }}" > $STACK_DIR/.env
-              echo "Variáveis salvas no diretório da Stack: $STACK_DIR"
-            else
-              echo "Erro: Stack não encontrada!"
-              exit 1
-            fi
-
+            echo "${{ secrets.ENV_FILE_CONTENT }}" > /opt/gastoapp/envs/wuzbot-engine.env
       - name: Deploy to Portainer via Webhook
         if: success()
         run: |
