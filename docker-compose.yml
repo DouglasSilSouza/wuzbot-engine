@@ -13,6 +13,9 @@ services:
     networks:
       - ContasNet
 
+    volumes:
+      - /opt/gastoapp/envs/wuzbot-engine.env:/app/.env
+
     deploy:
       replicas: 1
 
