@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.example
 tests/typebot-poc/captures.jsonl
 tests/typebot-poc/session.json
 tests/wuzapi-poc/captures.jsonl
