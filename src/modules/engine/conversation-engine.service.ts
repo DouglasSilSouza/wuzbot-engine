@@ -142,8 +142,37 @@ export class ConversationEngine {
       );
       const outputs = await this.provider.sendInput(existing.typebotSessionId, input);
       await this.sessions.touch(input.phone);
+      // 4.1. Verificação de Interceptação Cognitiva (Mid-session routing via WuzMind)
+      const needsAiEvaluation = outputs.some(
+        (out) => out.type === CanonicalOutputType.TEXT && out.text.includes('__WUZMIND_EVALUATE__'),
+      );
 
-      // 4.1. Verificação de Recuperação Cognitiva (Recovery Mode)
+      if (needsAiEvaluation && rawText.length > 0) {
+        this.logger.log(`[WUZMIND_EVALUATE] Typebot requested AI evaluation for input: "${rawText}"`);
+        const routeDecision = await this.intentRouter.evaluate(input.phone, rawText);
+        
+        if (routeDecision.shouldRoute && routeDecision.mapped) {
+          this.logger.log(`[WUZMIND_REDIRECT] Redirecting user to flow ${routeDecision.mapped.targetFlow}`);
+          
+          await this.sessions.resetSession(input.phone);
+          const { initialOutputs } = await this.sessions.startSession(input.phone, {
+            prefilledVariables: routeDecision.mapped.prefilledVariables,
+          });
+          
+          await this.contextManager.setLastIntent(input.phone, routeDecision.mapped.intent);
+          await this.contextSync.syncToRemote(input.phone);
+          return initialOutputs.map((output) => this.translator.fromTypebot(output));
+        } else {
+          return [
+            {
+              type: CanonicalOutputType.TEXT,
+              text: 'Desculpe, não consegui entender o que você quis dizer. Pode tentar de outra forma?',
+            },
+          ];
+        }
+      }
+
+      // 4.2. Verificação de Recuperação Cognitiva (Recovery Mode)
       const choiceOutput = outputs.find(
         (out) =>
           out.type === CanonicalOutputType.BUTTONS ||
