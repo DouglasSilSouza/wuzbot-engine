@@ -26,7 +26,7 @@ networks:
         - traefik.http.routers.wuzbot.tls.certresolver=letsencryptresolver
         - traefik.http.services.wuzbot.loadbalancer.server.port=3000
 
-volumes:
+    volumes:
   postgres_data:
 
 networks:
