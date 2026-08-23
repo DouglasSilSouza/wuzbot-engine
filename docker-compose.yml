@@ -7,35 +7,8 @@ services:
       - postgres
     ports:
       - "3001:3000"
-    environment:
-      NODE_ENV: production
-      HOSTNAME: 0.0.0.0
-      PORT: 3000
-
-      DATABASE_URL: ${DATABASE_URL}
-
-      WUZAPI_URL: ${WUZAPI_URL}
-      WUZAPI_ADMIN_TOKEN: ${WUZAPI_ADMIN_TOKEN}
-      WUZAPI_USER_TOKEN: ${WUZAPI_USER_TOKEN}
-      WUZAPI_SEND_URL: ${WUZAPI_SEND_URL}
-      WUZAPI_TEST_PHONE: ${WUZAPI_TEST_PHONE}
-
-      TYPEBOT_BASE_URL: ${TYPEBOT_BASE_URL}
-      TYPEBOT_API_KEY: ${TYPEBOT_API_KEY}
-      TYPEBOT_PUBLIC_ID: ${TYPEBOT_PUBLIC_ID}
-
-      WUZMIND_URL: ${WUZMIND_URL}
-      WUZMIND_API_KEY: ${WUZMIND_API_KEY}
-      WUZMIND_TIMEOUT_MS: ${WUZMIND_TIMEOUT_MS}
-
-      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
-      LOG_LEVEL: ${LOG_LEVEL}
-
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+    env_file:
+      - /opt/gastoapp/envs/wuzbot-engine.env
 
     networks:
       - ContasNet
