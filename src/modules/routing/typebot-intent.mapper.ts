@@ -1,52 +1,79 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { IntentEnum } from '../wuzmind/enums/intent.enum';
 import { IntentClassifyResponseDto } from '../wuzmind/dto/wuzmind.dto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface TypebotMappedIntent {
   isAllowed: boolean;
-  intent: IntentEnum;
+  intent: IntentEnum | string;
   targetFlow: string | null;
   prefilledVariables: Record<string, string>;
 }
 
 @Injectable()
 export class TypebotIntentMapper {
-  private readonly ALLOWED_FLOWS: Record<string, string> = {
-    [IntentEnum.REGISTRAR_GASTO]: 'GASTOS',
-    [IntentEnum.REGISTRAR_ENTRADA]: 'ENTRADAS',
-    [IntentEnum.CONSULTAR_RELATORIO]: 'RELATORIOS',
-    [IntentEnum.ENVIAR_COMPROVANTE]: 'CONFIRMAR_COMPROVANTE',
-  };
+  private readonly logger = new Logger(TypebotIntentMapper.name);
+
+  private getDynamicSchema() {
+    try {
+      const schemaPath = process.env.DYNAMIC_SCHEMA_PATH || '/opt/gastoapp/envs/dynamic-schema.json';
+      if (fs.existsSync(schemaPath)) {
+        return JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+      }
+      const localPath = path.join(process.cwd(), 'dynamic-schema.json');
+      if (fs.existsSync(localPath)) {
+        return JSON.parse(fs.readFileSync(localPath, 'utf8'));
+      }
+    } catch (e) {
+      this.logger.error('Failed to load dynamic schema:', e);
+    }
+    return null;
+  }
 
   map(response: IntentClassifyResponseDto, phone: string): TypebotMappedIntent {
-    const targetFlow = this.ALLOWED_FLOWS[response.intent] ?? response.targetFlow ?? null;
-    const isAllowed = Boolean(this.ALLOWED_FLOWS[response.intent]);
+    let targetFlow = response.targetFlow ?? null;
+    let isAllowed = false;
+
+    const schema = this.getDynamicSchema();
+    if (schema && schema.flows) {
+      const flowMatch = schema.flows.find((f: any) => f.intent === response.intent);
+      if (flowMatch) {
+        targetFlow = flowMatch.typebotFlowName || targetFlow;
+        isAllowed = true;
+      }
+    } else {
+      // Fallback to legacy if schema is missing
+      const legacyFlows: Record<string, string> = {
+        'REGISTRAR_GASTO': 'GASTOS',
+        'REGISTRAR_ENTRADA': 'ENTRADAS',
+        'CONSULTAR_RELATORIO': 'RELATORIOS',
+        'ENVIAR_COMPROVANTE': 'CONFIRMAR_COMPROVANTE',
+      };
+      targetFlow = legacyFlows[response.intent] ?? targetFlow;
+      isAllowed = Boolean(legacyFlows[response.intent]);
+    }
 
     const prefilledVariables: Record<string, string> = {
       Phone: phone,
       Channel: 'whatsapp',
-      Intent: response.intent,
+      Intent: response.intent as string,
     };
 
     if (response.entities) {
-      if (response.entities.bank) {
-        prefilledVariables.Banco = String(response.entities.bank).toUpperCase();
-      }
-      if (response.entities.period || response.entities.month) {
-        prefilledVariables.Mes = String(
-          response.entities.period ?? response.entities.month,
-        );
-      }
-      if (response.entities.value || response.entities.amount) {
-        prefilledVariables.Valor = String(
-          response.entities.value ?? response.entities.amount,
-        );
-      }
-      if (response.entities.category) {
-        prefilledVariables.Categoria = String(response.entities.category);
-      }
-      if (response.entities.description) {
-        prefilledVariables.Descricao = String(response.entities.description);
+      for (const [key, value] of Object.entries(response.entities)) {
+        if (value !== null && value !== undefined) {
+          // Normalize legacy keys if Wuzmind uses old schema
+          if (key === 'bank') prefilledVariables.Banco = String(value).toUpperCase();
+          else if (key === 'period' || key === 'month') prefilledVariables.Mes = String(value);
+          else if (key === 'value' || key === 'amount') prefilledVariables.Valor = String(value);
+          else if (key === 'category') prefilledVariables.Categoria = String(value);
+          else if (key === 'description') prefilledVariables.Descricao = String(value);
+          else {
+            // Dynamic variable!
+            prefilledVariables[key] = String(value);
+          }
+        }
       }
     }
 
