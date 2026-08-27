@@ -9,13 +9,13 @@ import {
 import { MessageTranslator } from '../translation/message-translator.service';
 import { SessionManager } from '../sessions/session-manager.service';
 import { GlobalCommandService } from '../commands/global-command.service';
-import { HumanBehaviorService } from '../human-behavior/human-behavior.service';
-import { IntentRoutingService } from '../routing/intent-routing.service';
-import { RecoveryModeService } from '../recovery/recovery.service';
 import { WuzMindMediaRoutingService } from '../media-routing/wuzmind-media-routing.service';
 import { ContextManagerService } from '../context/context-manager.service';
 import { WuzMindContextSyncService } from '../context/wuzmind-context-sync.service';
 import { UserAccessService } from '../user-access/user-access.service';
+import { IntentRoutingService } from '../routing/intent-routing.service';
+
+export const WUZMIND_EVALUATE_MARKER = '__WUZMIND_EVALUATE__';
 
 @Injectable()
 export class ConversationEngine {
@@ -26,13 +26,11 @@ export class ConversationEngine {
     private readonly translator: MessageTranslator,
     @Inject(CONVERSATION_PROVIDER) private readonly provider: ConversationProvider,
     private readonly globalCommands: GlobalCommandService,
-    private readonly humanBehavior: HumanBehaviorService,
-    private readonly intentRouter: IntentRoutingService,
-    private readonly recoveryMode: RecoveryModeService,
     private readonly mediaRouter: WuzMindMediaRoutingService,
     private readonly contextManager: ContextManagerService,
     private readonly contextSync: WuzMindContextSyncService,
     private readonly userAccess: UserAccessService,
+    private readonly intentRouter: IntentRoutingService,
   ) {}
 
   async handle(input: CanonicalUserInput): Promise<CanonicalOutput[]> {
@@ -150,59 +148,44 @@ export class ConversationEngine {
       const outputs = await this.provider.sendInput(existing.typebotSessionId, input);
       await this.sessions.touch(input.phone);
 
-      // 4.1. Verificação de Recuperação Cognitiva (Recovery Mode)
-      // A IA (WuzMind) é acionada APENAS quando o Typebot não conseguiu processar
-      // a resposta do usuário (texto livre que não bate com as opções do menu).
-      const choiceOutput = outputs.find(
-        (out) =>
-          out.type === CanonicalOutputType.BUTTONS ||
-          out.type === CanonicalOutputType.LIST,
+      // 4.1. IA acionada APÓS o Typebot enviar uma informação no fluxo.
+      // O Typebot, no próprio fluxo, pode inserir o marcador __WUZMIND_EVALUATE__
+      // para sinalizar que a IA deve processar/interpretar a informação recebida.
+      // Ex.: o Typebot coletou os dados de uma compra e pede à IA montar o resumo.
+      const needsAiEvaluation = outputs.some(
+        (out) => out.type === CanonicalOutputType.TEXT && out.text?.includes(WUZMIND_EVALUATE_MARKER),
       );
 
-      // Se o Typebot devolveu opções interativas e o input do usuário foi texto livre que não bate com as opções
-      if (choiceOutput && choiceOutput.options && choiceOutput.options.length > 0) {
-        const isMatchedOption = choiceOutput.options.some(
-          (opt) =>
-            opt.label.trim().toLowerCase() === rawText.toLowerCase() ||
-            opt.value?.trim().toLowerCase() === rawText.toLowerCase() ||
-            opt.id === rawText,
+      if (needsAiEvaluation && rawText.length > 0) {
+        this.logger.log(
+          `[WUZMIND_EVALUATE] Typebot solicitou avaliação da IA após enviar informação no fluxo para "${rawText}"`,
         );
+        const routeDecision = await this.intentRouter.evaluate(input.phone, rawText);
 
-        if (!isMatchedOption && rawText.length > 0 && input.type === CanonicalInputType.TEXT) {
+        if (routeDecision.shouldRoute && routeDecision.mapped) {
           this.logger.log(
-            `[WUZMIND_RECOVERY] Typebot não reconheceu a resposta "${rawText}". Acionando recovery (erro de menu).`,
+            `[WUZMIND_REDIRECT] IA mapeou a informação para o fluxo ${routeDecision.mapped.targetFlow}`,
           );
-          const recoveryDecision = await this.recoveryMode.handleRecovery(
-            input.phone,
-            rawText,
-            choiceOutput.options,
-          );
-
-          // Se o WuzMind identificou qual opção o usuário quis escolher, avança automaticamente no Typebot!
-          if (recoveryDecision.matchedOption && existing.typebotSessionId) {
-            this.logger.log(
-              `[WUZMIND_AUTO_FORWARD] Auto-forwarding matched option "${recoveryDecision.matchedOption.label}" to Typebot session ${existing.typebotSessionId}`,
-            );
-            const forwardedInput: CanonicalUserInput = {
-              phone: input.phone,
-              externalMessageId: `fwd_${input.externalMessageId}`,
-              type: CanonicalInputType.TEXT,
-              text: recoveryDecision.matchedOption.label,
-              selection: recoveryDecision.matchedOption,
-              receivedAt: new Date(),
-            };
-            const nextOutputs = await this.provider.sendInput(
-              existing.typebotSessionId,
-              forwardedInput,
-            );
-            await this.sessions.touch(input.phone);
-            await this.contextSync.syncToRemote(input.phone);
-            return nextOutputs.map((output) => this.translator.fromTypebot(output));
-          }
-
-          return recoveryDecision.outputs.map((output) => this.translator.fromTypebot(output));
+          await this.sessions.resetSession(input.phone);
+          const { initialOutputs } = await this.sessions.startSession(input.phone, {
+            prefilledVariables: routeDecision.mapped.prefilledVariables,
+          });
+          await this.contextManager.setLastIntent(input.phone, routeDecision.mapped.intent);
+          await this.contextSync.syncToRemote(input.phone);
+          return initialOutputs.map((output) => this.translator.fromTypebot(output));
         }
+
+        // Sem roteamento — repassa a resposta do Typebot (sem o marcador).
+        this.logger.log(`[WUZMIND_EVALUATE] IA não mapeou a informação. Repassando resposta do Typebot.`);
+        return outputs
+          .filter((out) => !(out.type === CanonicalOutputType.TEXT && out.text?.includes(WUZMIND_EVALUATE_MARKER)))
+          .map((output) => this.translator.fromTypebot(output));
       }
+
+      // 4.2. Sem acionamento de IA para "redisplay".
+      // Se o usuário digita texto livre que não corresponde às opções do Typebot,
+      // apenas re-envia as opções originais (o próprio Typebot já cuida disso na
+      // máquina de estados). NÃO há recovery/redisplay via IA nem auto-avanço por intenção.
 
       await this.contextSync.syncToRemote(input.phone);
       return outputs.map((output) => this.translator.fromTypebot(output));
@@ -220,27 +203,12 @@ export class ConversationEngine {
       }
 
       // ==========================================
-      // 5. Falha real do Typebot (erro) — aciona a IA como fallback de recuperação
+      // 5. Falha real do Typebot (erro técnico) — apenas informa o usuário.
+      // NÃO aciona a IA para redisplay/roteamento.
       // ==========================================
       this.logger.error(
         `[TYPEBOT_ERROR] Falha ao continuar sessão ${existing.typebotSessionId} para ${input.phone}: ${error}`,
       );
-
-      // Tenta recuperar com a IA o que o usuário quis dizer (apenas em caso de erro).
-      try {
-        const fallbackOutputs = await this.recoveryMode.handleRecovery(
-          input.phone,
-          rawText,
-          [],
-        );
-        const firstFallback = fallbackOutputs.outputs?.[0];
-        if (firstFallback && firstFallback.options && firstFallback.options.length > 0) {
-          return fallbackOutputs.outputs.map((output) => this.translator.fromTypebot(output));
-        }
-      } catch (recoveryError) {
-        this.logger.error(`[TYPEBOT_ERROR] FALHA também na recovery via IA: ${recoveryError}`);
-      }
-
       return [
         {
           type: CanonicalOutputType.TEXT,

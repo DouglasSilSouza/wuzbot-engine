@@ -45,16 +45,23 @@ cp .env.example .env
 
 ## 🔐 Controle de Acesso
 
-O engine, ao receber qualquer mensagem, verifica se o telefone do remetente está cadastrado e **ativo** na tabela `usuarios` do banco principal (`GASTOS_DATABASE_URL`). Apenas usuários com permissão de acesso navegam pelo menu do Typebot. Caso contrário, recebem uma mensagem de acesso restrito.
+O engine, ao receber qualquer mensagem, verifica se o telefone do remetente está cadastrado e **ativo** na tabela `usuarios` do banco principal (`GASTOS_DATABASE_URL`). Apenas usuários autorizados (com `pode_ver_gastos` ou perfil `ADMIN`) navegam pelo menu do Typebot. Caso contrário, recebem uma mensagem de acesso restrito.
+
+**Fail-closed**: o controle de acesso é habilitado por padrão. Se `GASTOS_DATABASE_URL` não estiver configurada, o acesso é **bloqueado** por segurança. Para desativar o controle, defina `USER_ACCESS_ENABLED=false`.
+
+> ⚠️ **Importante**: no ambiente de produção (arquivo `/opt/gastoapp/envs/wuzbot-engine.env`), configure `GASTOS_DATABASE_URL` apontando para o banco `gastosdb` para que os usuários autorizados sejam reconhecidos.
 
 ## 🤖 Uso da IA (WuzMind)
 
-A IA (WuzMind) é acionada **apenas em caso de erro no Typebot**:
+A IA (WuzMind) **não** participa do roteamento geral do bot nem do controle de acesso.
+Ela é acionada **apenas após o Typebot enviar uma informação no fluxo**, quando o próprio fluxo do Typebot insere o marcador `__WUZMIND_EVALUATE__` nos dados de saída. Nesse caso, a IA processa/interpreta a informação recebida.
 
-- **Recovery de menu**: quando o usuário envia texto livre que não corresponde às opções de um menu do Typebot.
-- **Falha real do Typebot**: quando o Typebot lança um erro (não-404) ao continuar uma sessão.
+Não há mais:
+- Roteamento automático por intenção no início da sessão.
+- Recovery/redisplay de menu via IA quando o usuário digita texto livre.
+- Auto-avanço de opção por intenção.
 
-O roteamento automático por intenção no início da sessão foi removido — o fluxo é sempre controlado pelo Typebot (máquina de estados determinística).
+O fluxo é sempre controlado pelo Typebot (máquina de estados determinística). Quando o usuário não corresponde às opções de um menu, o próprio Typebot reexibe as opções.
 
 ---
 

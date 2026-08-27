@@ -8,16 +8,8 @@ import { GlobalCommandService } from '../../dist/modules/commands/global-command
 
 const createEngine = (mockSessions, translator, mockProvider, overrides = {}) => {
   const globalCommands = overrides.globalCommands ?? new GlobalCommandService();
-  const humanBehavior = overrides.humanBehavior ?? {
-    detect: async () => ({ isHumanBehavior: false }),
-  };
   const intentRouter = overrides.intentRouter ?? {
     evaluate: async () => ({ shouldRoute: false }),
-  };
-  const recoveryMode = overrides.recoveryMode ?? {
-    handleRecovery: async (phone, msg, opts) => [
-      { type: CanonicalOutputType.BUTTONS, text: 'Recuperado', options: opts },
-    ],
   };
   const mediaRouter = overrides.mediaRouter ?? {
     classifyAndRoute: async () => ({}),
@@ -38,13 +30,11 @@ const createEngine = (mockSessions, translator, mockProvider, overrides = {}) =>
     translator,
     mockProvider,
     globalCommands,
-    humanBehavior,
-    intentRouter,
-    recoveryMode,
     mediaRouter,
     contextManager,
     contextSync,
     userAccess,
+    intentRouter,
   );
 };
 

@@ -60,9 +60,7 @@ describe('End-to-End MVP Conversation Flow (Text, List, Image)', () => {
     sessionManager = new SessionManager(sessionStore, provider);
 
     const globalCommands = { detect: () => ({ isGlobalCommand: false }) };
-    const humanBehavior = { detect: async () => ({ isHumanBehavior: false }) };
     const intentRouter = { evaluate: async () => ({ shouldRoute: false }) };
-    const recoveryMode = { handleRecovery: async (phone, msg, opts) => [{ type: 'BUTTONS', text: 'Recuperado', options: opts }] };
     const mediaRouter = { classifyAndRoute: async () => ({}) };
     const contextManager = { setLastIntent: async () => ({}) };
     const contextSync = { clearBoth: async () => {}, syncToRemote: async () => {} };
@@ -73,13 +71,11 @@ describe('End-to-End MVP Conversation Flow (Text, List, Image)', () => {
       translator,
       provider,
       globalCommands,
-      humanBehavior,
-      intentRouter,
-      recoveryMode,
       mediaRouter,
       contextManager,
       contextSync,
       userAccess,
+      intentRouter,
     );
     webhookProcessor = new WebhookProcessor(adapter, conversationEngine, idempotencyStore, phoneLock);
   });

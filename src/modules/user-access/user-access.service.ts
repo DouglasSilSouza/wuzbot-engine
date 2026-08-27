@@ -21,8 +21,9 @@ export class UserAccessService {
 
   constructor() {
     const dbUrl = process.env.GASTOS_DATABASE_URL;
-    this.enabled = process.env.USER_ACCESS_ENABLED !== 'false' && Boolean(dbUrl);
-    if (dbUrl) {
+    // O controle de acesso é habilitado por padrão. Somente USER_ACCESS_ENABLED=false o desativa.
+    this.enabled = process.env.USER_ACCESS_ENABLED !== 'false';
+    if (this.enabled && dbUrl) {
       this.pool = new Pool({ connectionString: dbUrl });
     } else {
       this.pool = null;
@@ -32,12 +33,20 @@ export class UserAccessService {
   /**
    * Verifica se o telefone pertence a um usuário autorizado (cadastrado e ativo)
    * e com permissão de acesso ao sistema.
+   * Fail-closed: por segurança, se a validação estiver habilitada mas não for
+   * possível consultar o banco, o acesso é bloqueado.
    */
   async isAuthorized(phone: string): Promise<boolean> {
-    if (!this.enabled || !this.pool) {
-      // Se a validação de acesso não estiver configurada, não bloqueia ninguém.
-      this.logger.warn('[USER_ACCESS] Validação de acesso desabilitada (sem GASTOS_DATABASE_URL). Permitindo acesso.');
+    if (!this.enabled) {
+      this.logger.warn('[USER_ACCESS] Controle de acesso desabilitado (USER_ACCESS_ENABLED=false). Permitindo todos.');
       return true;
+    }
+
+    if (!this.pool) {
+      this.logger.error(
+        '[USER_ACCESS] Controle de acesso habilitado, mas GASTOS_DATABASE_URL não está configurada. Bloqueando acesso por segurança.',
+      );
+      return false;
     }
 
     const normalized = this.normalizePhone(phone);
@@ -81,16 +90,21 @@ export class UserAccessService {
 
   private normalizePhone(phone: string): string | null {
     let digits = phone.replace(/\D/g, '');
-    if (digits.length === 12 && digits.startsWith('55')) {
+    if (!digits) return null;
+
+    // Normaliza para o formato do banco: DDI 55 + DDD + número (ex: 5511953869941).
+    // Remove o sufixo de dispositivo/JID já tratado no adapter.
+    // Remove o "9" excedente do DDI quando o número já veio completo.
+    if (digits.startsWith('55')) {
+      // Já tem DDI. Mantém como está (55 + número completo).
       return digits;
     }
-    if (digits.length === 10) {
-      // Sem DDI (ex: 11953869941 -> 5511953869941)
+
+    // Sem DDI. Adiciona 55.
+    if (digits.length === 10 || digits.length === 11) {
       return `55${digits}`;
     }
-    if (digits.length === 11) {
-      return digits;
-    }
-    return digits || null;
+
+    return digits;
   }
 }
