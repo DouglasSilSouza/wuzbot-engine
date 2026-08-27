@@ -21,9 +21,6 @@ const createEngine = (mockSessions, translator, mockProvider, overrides = {}) =>
     clearBoth: async () => {},
     syncToRemote: async () => {},
   };
-  const userAccess = overrides.userAccess ?? {
-    isAuthorized: async () => true,
-  };
 
   return new ConversationEngine(
     mockSessions,
@@ -33,7 +30,6 @@ const createEngine = (mockSessions, translator, mockProvider, overrides = {}) =>
     mediaRouter,
     contextManager,
     contextSync,
-    userAccess,
     intentRouter,
   );
 };

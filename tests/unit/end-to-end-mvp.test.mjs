@@ -64,7 +64,6 @@ describe('End-to-End MVP Conversation Flow (Text, List, Image)', () => {
     const mediaRouter = { classifyAndRoute: async () => ({}) };
     const contextManager = { setLastIntent: async () => ({}) };
     const contextSync = { clearBoth: async () => {}, syncToRemote: async () => {} };
-    const userAccess = { isAuthorized: async () => true };
 
     conversationEngine = new ConversationEngine(
       sessionManager,
@@ -74,7 +73,6 @@ describe('End-to-End MVP Conversation Flow (Text, List, Image)', () => {
       mediaRouter,
       contextManager,
       contextSync,
-      userAccess,
       intentRouter,
     );
     webhookProcessor = new WebhookProcessor(adapter, conversationEngine, idempotencyStore, phoneLock);

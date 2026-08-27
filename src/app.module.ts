@@ -13,7 +13,6 @@ import { HumanBehaviorModule } from './modules/human-behavior/human-behavior.mod
 import { RoutingModule } from './modules/routing/routing.module';
 import { RecoveryModule } from './modules/recovery/recovery.module';
 import { MediaRoutingModule } from './modules/media-routing/media-routing.module';
-import { UserAccessModule } from './modules/user-access/user-access.module';
 import { HealthController } from './modules/common/health/health.controller';
 import { TechnicalSessionEntity } from './modules/sessions/session.entity';
 import { IdempotencyEntity, TechnicalAuditEntity } from './modules/sessions/technical.entities';
@@ -45,7 +44,6 @@ import { WuzbotContextEntity } from './modules/context/context.entity';
     RoutingModule,
     RecoveryModule,
     MediaRoutingModule,
-    UserAccessModule,
     SessionsModule,
     TranslationModule,
     TypebotModule,

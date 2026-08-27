@@ -12,7 +12,6 @@ import { GlobalCommandService } from '../commands/global-command.service';
 import { WuzMindMediaRoutingService } from '../media-routing/wuzmind-media-routing.service';
 import { ContextManagerService } from '../context/context-manager.service';
 import { WuzMindContextSyncService } from '../context/wuzmind-context-sync.service';
-import { UserAccessService } from '../user-access/user-access.service';
 import { IntentRoutingService } from '../routing/intent-routing.service';
 
 export const WUZMIND_EVALUATE_MARKER = '__WUZMIND_EVALUATE__';
@@ -29,32 +28,11 @@ export class ConversationEngine {
     private readonly mediaRouter: WuzMindMediaRoutingService,
     private readonly contextManager: ContextManagerService,
     private readonly contextSync: WuzMindContextSyncService,
-    private readonly userAccess: UserAccessService,
     private readonly intentRouter: IntentRoutingService,
   ) {}
 
   async handle(input: CanonicalUserInput): Promise<CanonicalOutput[]> {
     const rawText = input.text?.trim() ?? '';
-
-    // ==========================================
-    // 0. Controle de Acesso — apenas usuários autorizados navegam pelo menu
-    // ==========================================
-    const authorized = await this.userAccess.isAuthorized(input.phone);
-    if (!authorized) {
-      this.logger.warn(`[ACCESS_DENIED] Telefone ${input.phone} sem autorização. Bloqueando acesso.`);
-      await this.sessions.findByPhone(input.phone).then(async (existing) => {
-        if (existing) {
-          existing.status = 'EXPIRED';
-        }
-      }).catch(() => undefined);
-      return [
-        {
-          type: CanonicalOutputType.TEXT,
-          text:
-            '🔒 *Acesso restrito.*\n\nEste número de telefone não está cadastrado ou não possui permissão para acessar o sistema de gastos.\n\nSe você acredita que é um engano, entre em contato com o administrador para regularizar seu cadastro.',
-        },
-      ];
-    }
 
     // ==========================================
     // 1. Intercepção de Comandos Globais Locais (MENU, SAIR, AJUDA, CONTINUAR)

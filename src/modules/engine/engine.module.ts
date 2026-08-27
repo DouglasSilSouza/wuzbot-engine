@@ -10,7 +10,6 @@ import { RecoveryModule } from '../recovery/recovery.module';
 import { MediaRoutingModule } from '../media-routing/media-routing.module';
 import { ContextModule } from '../context/context.module';
 import { WuzMindModule } from '../wuzmind/wuzmind.module';
-import { UserAccessModule } from '../user-access/user-access.module';
 
 @Module({
   imports: [
@@ -24,7 +23,6 @@ import { UserAccessModule } from '../user-access/user-access.module';
     MediaRoutingModule,
     ContextModule,
     WuzMindModule,
-    UserAccessModule,
   ],
   providers: [ConversationEngine],
   exports: [ConversationEngine],

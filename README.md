@@ -38,18 +38,21 @@ cp .env.example .env
 | `WUZMIND_API_KEY` | Chave de autenticação enviada no header `x-wuzmind-api-key` | - |
 | `WUZMIND_TIMEOUT_MS` | Timeout de chamada ao WuzMind | `10000` |
 | `WUZMIND_MIN_CONFIDENCE` | Confiança mínima para roteamento automático | `0.65` |
-| `GASTOS_DATABASE_URL` | URL do banco principal de gastos (tabela `usuarios`) para controle de acesso | - |
-| `USER_ACCESS_ENABLED` | Habilita a verificação de usuário autorizado. Quando `false` ou sem `GASTOS_DATABASE_URL`, não bloqueia ninguém | `true` |
 
 ---
 
 ## 🔐 Controle de Acesso
 
-O engine, ao receber qualquer mensagem, verifica se o telefone do remetente está cadastrado e **ativo** na tabela `usuarios` do banco principal (`GASTOS_DATABASE_URL`). Apenas usuários autorizados (com `pode_ver_gastos` ou perfil `ADMIN`) navegam pelo menu do Typebot. Caso contrário, recebem uma mensagem de acesso restrito.
+O controle de acesso **NÃO é feito no wuzbot-engine**. Ele é de responsabilidade do **backend (n8n)** e da **máquina de estados (Typebot)**:
 
-**Fail-closed**: o controle de acesso é habilitado por padrão. Se `GASTOS_DATABASE_URL` não estiver configurada, o acesso é **bloqueado** por segurança. Para desativar o controle, defina `USER_ACCESS_ENABLED=false`.
+- O **Typebot** é o centro de tudo (máquina de estados).
+- O **n8n** é o backend, que valida se o usuário é autorizado.
+- O **wuzbot-engine** apenas conecta o usuário (WhatsApp) ao Typebot, sem bloquear nem decidir acesso.
 
-> ⚠️ **Importante**: no ambiente de produção (arquivo `/opt/gastoapp/envs/wuzbot-engine.env`), configure `GASTOS_DATABASE_URL` apontando para o banco `gastosdb` para que os usuários autorizados sejam reconhecidos.
+O fluxo de validação (no n8n, workflow "configurações Wuzbot", webhook `user_auth`):
+1. O Typebot chama o webhook `user_auth` com o telefone.
+2. O n8n consulta a tabela `usuarios` e responde `{ "authorized": true/false, "user": {...} }`.
+3. O Typebot decide: se `authorized=true` segue o fluxo; senão, bloqueia com "acesso restrito".
 
 ## 🤖 Uso da IA (WuzMind)
 
