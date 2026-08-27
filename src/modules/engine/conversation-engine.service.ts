@@ -15,6 +15,7 @@ import { RecoveryModeService } from '../recovery/recovery.service';
 import { WuzMindMediaRoutingService } from '../media-routing/wuzmind-media-routing.service';
 import { ContextManagerService } from '../context/context-manager.service';
 import { WuzMindContextSyncService } from '../context/wuzmind-context-sync.service';
+import { UserAccessService } from '../user-access/user-access.service';
 
 @Injectable()
 export class ConversationEngine {
@@ -31,10 +32,31 @@ export class ConversationEngine {
     private readonly mediaRouter: WuzMindMediaRoutingService,
     private readonly contextManager: ContextManagerService,
     private readonly contextSync: WuzMindContextSyncService,
+    private readonly userAccess: UserAccessService,
   ) {}
 
   async handle(input: CanonicalUserInput): Promise<CanonicalOutput[]> {
     const rawText = input.text?.trim() ?? '';
+
+    // ==========================================
+    // 0. Controle de Acesso — apenas usuários autorizados navegam pelo menu
+    // ==========================================
+    const authorized = await this.userAccess.isAuthorized(input.phone);
+    if (!authorized) {
+      this.logger.warn(`[ACCESS_DENIED] Telefone ${input.phone} sem autorização. Bloqueando acesso.`);
+      await this.sessions.findByPhone(input.phone).then(async (existing) => {
+        if (existing) {
+          existing.status = 'EXPIRED';
+        }
+      }).catch(() => undefined);
+      return [
+        {
+          type: CanonicalOutputType.TEXT,
+          text:
+            '🔒 *Acesso restrito.*\n\nEste número de telefone não está cadastrado ou não possui permissão para acessar o sistema de gastos.\n\nSe você acredita que é um engano, entre em contato com o administrador para regularizar seu cadastro.',
+        },
+      ];
+    }
 
     // ==========================================
     // 1. Intercepção de Comandos Globais Locais (MENU, SAIR, AJUDA, CONTINUAR)
@@ -111,23 +133,8 @@ export class ConversationEngine {
     if (!existing?.typebotSessionId || existing.status !== 'ACTIVE') {
       this.logger.log(`Starting new session for phone ${input.phone}`);
 
-      // 3.1. Human Behavior Fast Greeting Check
-      const humanCheck = await this.humanBehavior.detect(rawText);
-
-      // 3.2. Intent Routing (Se o usuário enviou uma frase com intenção rica)
-      if (!humanCheck.isHumanBehavior && rawText.length > 3) {
-        const routeDecision = await this.intentRouter.evaluate(input.phone, rawText);
-        if (routeDecision.shouldRoute && routeDecision.mapped) {
-          const { initialOutputs } = await this.sessions.startSession(input.phone, {
-            prefilledVariables: routeDecision.mapped.prefilledVariables,
-          });
-          await this.contextManager.setLastIntent(input.phone, routeDecision.mapped.intent);
-          await this.contextSync.syncToRemote(input.phone);
-          return initialOutputs.map((output) => this.translator.fromTypebot(output));
-        }
-      }
-
-      // 3.3. Início Padrão do Typebot
+      // Início Padrão do Typebot — a IA NÃO é acionada aqui.
+      // O fluxo é sempre controlado pelo Typebot (máquina de estados determinística).
       const { initialOutputs } = await this.sessions.startSession(input.phone);
       await this.contextSync.syncToRemote(input.phone);
       return initialOutputs.map((output) => this.translator.fromTypebot(output));
@@ -142,37 +149,10 @@ export class ConversationEngine {
       );
       const outputs = await this.provider.sendInput(existing.typebotSessionId, input);
       await this.sessions.touch(input.phone);
-      // 4.1. Verificação de Interceptação Cognitiva (Mid-session routing via WuzMind)
-      const needsAiEvaluation = outputs.some(
-        (out) => out.type === CanonicalOutputType.TEXT && out.text?.includes('__WUZMIND_EVALUATE__'),
-      );
 
-      if (needsAiEvaluation && rawText.length > 0) {
-        this.logger.log(`[WUZMIND_EVALUATE] Typebot requested AI evaluation for input: "${rawText}"`);
-        const routeDecision = await this.intentRouter.evaluate(input.phone, rawText);
-        
-        if (routeDecision.shouldRoute && routeDecision.mapped) {
-          this.logger.log(`[WUZMIND_REDIRECT] Redirecting user to flow ${routeDecision.mapped.targetFlow}`);
-          
-          await this.sessions.resetSession(input.phone);
-          const { initialOutputs } = await this.sessions.startSession(input.phone, {
-            prefilledVariables: routeDecision.mapped.prefilledVariables,
-          });
-          
-          await this.contextManager.setLastIntent(input.phone, routeDecision.mapped.intent);
-          await this.contextSync.syncToRemote(input.phone);
-          return initialOutputs.map((output) => this.translator.fromTypebot(output));
-        } else {
-          return [
-            {
-              type: CanonicalOutputType.TEXT,
-              text: 'Desculpe, não consegui entender o que você quis dizer. Pode tentar de outra forma?',
-            },
-          ];
-        }
-      }
-
-      // 4.2. Verificação de Recuperação Cognitiva (Recovery Mode)
+      // 4.1. Verificação de Recuperação Cognitiva (Recovery Mode)
+      // A IA (WuzMind) é acionada APENAS quando o Typebot não conseguiu processar
+      // a resposta do usuário (texto livre que não bate com as opções do menu).
       const choiceOutput = outputs.find(
         (out) =>
           out.type === CanonicalOutputType.BUTTONS ||
@@ -189,6 +169,9 @@ export class ConversationEngine {
         );
 
         if (!isMatchedOption && rawText.length > 0 && input.type === CanonicalInputType.TEXT) {
+          this.logger.log(
+            `[WUZMIND_RECOVERY] Typebot não reconheceu a resposta "${rawText}". Acionando recovery (erro de menu).`,
+          );
           const recoveryDecision = await this.recoveryMode.handleRecovery(
             input.phone,
             rawText,
@@ -235,7 +218,36 @@ export class ConversationEngine {
         await this.contextSync.syncToRemote(input.phone);
         return initialOutputs.map((output) => this.translator.fromTypebot(output));
       }
-      throw error;
+
+      // ==========================================
+      // 5. Falha real do Typebot (erro) — aciona a IA como fallback de recuperação
+      // ==========================================
+      this.logger.error(
+        `[TYPEBOT_ERROR] Falha ao continuar sessão ${existing.typebotSessionId} para ${input.phone}: ${error}`,
+      );
+
+      // Tenta recuperar com a IA o que o usuário quis dizer (apenas em caso de erro).
+      try {
+        const fallbackOutputs = await this.recoveryMode.handleRecovery(
+          input.phone,
+          rawText,
+          [],
+        );
+        const firstFallback = fallbackOutputs.outputs?.[0];
+        if (firstFallback && firstFallback.options && firstFallback.options.length > 0) {
+          return fallbackOutputs.outputs.map((output) => this.translator.fromTypebot(output));
+        }
+      } catch (recoveryError) {
+        this.logger.error(`[TYPEBOT_ERROR] FALHA também na recovery via IA: ${recoveryError}`);
+      }
+
+      return [
+        {
+          type: CanonicalOutputType.TEXT,
+          text:
+            '⚠️ Ocorreu um erro ao processar sua mensagem. Tente novamente ou digite *MENU* para reiniciar o atendimento.',
+        },
+      ];
     }
   }
 }

@@ -38,6 +38,23 @@ cp .env.example .env
 | `WUZMIND_API_KEY` | Chave de autenticação enviada no header `x-wuzmind-api-key` | - |
 | `WUZMIND_TIMEOUT_MS` | Timeout de chamada ao WuzMind | `10000` |
 | `WUZMIND_MIN_CONFIDENCE` | Confiança mínima para roteamento automático | `0.65` |
+| `GASTOS_DATABASE_URL` | URL do banco principal de gastos (tabela `usuarios`) para controle de acesso | - |
+| `USER_ACCESS_ENABLED` | Habilita a verificação de usuário autorizado. Quando `false` ou sem `GASTOS_DATABASE_URL`, não bloqueia ninguém | `true` |
+
+---
+
+## 🔐 Controle de Acesso
+
+O engine, ao receber qualquer mensagem, verifica se o telefone do remetente está cadastrado e **ativo** na tabela `usuarios` do banco principal (`GASTOS_DATABASE_URL`). Apenas usuários com permissão de acesso navegam pelo menu do Typebot. Caso contrário, recebem uma mensagem de acesso restrito.
+
+## 🤖 Uso da IA (WuzMind)
+
+A IA (WuzMind) é acionada **apenas em caso de erro no Typebot**:
+
+- **Recovery de menu**: quando o usuário envia texto livre que não corresponde às opções de um menu do Typebot.
+- **Falha real do Typebot**: quando o Typebot lança um erro (não-404) ao continuar uma sessão.
+
+O roteamento automático por intenção no início da sessão foi removido — o fluxo é sempre controlado pelo Typebot (máquina de estados determinística).
 
 ---
 

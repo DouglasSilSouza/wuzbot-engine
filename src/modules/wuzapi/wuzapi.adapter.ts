@@ -50,7 +50,8 @@ export class WuzapiAdapter {
       ?? rawMessage
       ?? data
       ?? event;
-    const key = this.findObject(event, 'key') ?? this.findObject(data, 'key') ?? this.findObject(msg, 'key') ?? this.findObject(root, 'key');    // 2. Extração de Telefone com prioridade estrita: SenderAlt -> ChatAlt -> Sender -> Chat
+    const key = this.findObject(event, 'key') ?? this.findObject(data, 'key') ?? this.findObject(msg, 'key') ?? this.findObject(root, 'key');
+    // 2. Extração de Telefone com prioridade estrita: SenderAlt -> ChatAlt -> Sender -> Chat
     let rawPhoneCandidate = this.findString(info, 'senderalt', 'sender_alt', 'chatalt', 'chat_alt')
       ?? this.findString(event, 'senderalt', 'sender_alt', 'chatalt', 'chat_alt')
       ?? this.findString(data, 'senderalt', 'sender_alt', 'chatalt', 'chat_alt')
@@ -331,6 +332,39 @@ export class WuzapiAdapter {
         body: {
           Phone: phone,
           Image: await this.toDataUrl(message.media.url),
+          Caption: message.media.caption ?? message.text,
+        },
+      };
+    }
+
+    if (message.type === CanonicalOutputType.VIDEO && message.media?.url) {
+      return {
+        path: '/chat/send/video',
+        body: {
+          Phone: phone,
+          Video: await this.toDataUrl(message.media.url),
+          Caption: message.media.caption ?? message.text,
+        },
+      };
+    }
+
+    if (message.type === CanonicalOutputType.AUDIO && message.media?.url) {
+      return {
+        path: '/chat/send/audio',
+        body: {
+          Phone: phone,
+          Audio: await this.toDataUrl(message.media.url),
+        },
+      };
+    }
+
+    if (message.type === CanonicalOutputType.DOCUMENT && message.media?.url) {
+      return {
+        path: '/chat/send/document',
+        body: {
+          Phone: phone,
+          Document: await this.toDataUrl(message.media.url),
+          FileName: message.media.fileName ?? 'documento',
           Caption: message.media.caption ?? message.text,
         },
       };
