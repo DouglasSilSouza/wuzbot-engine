@@ -22,7 +22,12 @@ export class TypebotProvider implements ConversationProvider {
     this.logger.log(`[Typebot] Starting new session for phone ${phone} (publicId: ${this.publicId})`);
     const prefilled = {
       Phone: phone,
+      phone: phone,
+      user_phone: phone,
+      telefone: phone,
+      Telefone: phone,
       Channel: 'whatsapp',
+      channel: 'whatsapp',
       ...(options?.prefilledVariables ?? {}),
     };
     const response = await this.request(`/api/v1/typebots/${encodeURIComponent(this.publicId)}/startChat`, {
