@@ -8,18 +8,8 @@ import { GlobalCommandService } from '../../dist/modules/commands/global-command
 
 const createEngine = (mockSessions, translator, mockProvider, overrides = {}) => {
   const globalCommands = overrides.globalCommands ?? new GlobalCommandService();
-  const intentRouter = overrides.intentRouter ?? {
-    evaluate: async () => ({ shouldRoute: false }),
-  };
-  const mediaRouter = overrides.mediaRouter ?? {
-    classifyAndRoute: async () => ({}),
-  };
   const contextManager = overrides.contextManager ?? {
-    setLastIntent: async () => ({}),
-  };
-  const contextSync = overrides.contextSync ?? {
-    clearBoth: async () => {},
-    syncToRemote: async () => {},
+    resetContext: async () => ({}),
   };
 
   return new ConversationEngine(
@@ -27,10 +17,7 @@ const createEngine = (mockSessions, translator, mockProvider, overrides = {}) =>
     translator,
     mockProvider,
     globalCommands,
-    mediaRouter,
     contextManager,
-    contextSync,
-    intentRouter,
   );
 };
 
@@ -123,6 +110,34 @@ describe('ConversationEngine', () => {
     assert.equal(touchCalled, true);
     assert.equal(outputs.length, 1);
     assert.equal(outputs[0].text, 'Você escolheu Opção 1');
+  });
+
+  it('should handle audio messages deterministically', async () => {
+    const mockSessions = {
+      findByPhone: async () => null,
+      startSession: async () => ({ session: {}, initialOutputs: [] }),
+      touch: async () => {},
+    };
+
+    const mockProvider = {
+      createSession: async () => ({ sessionId: 'sess_new' }),
+      sendInput: async () => [],
+    };
+
+    const translator = new MessageTranslator();
+    const engine = createEngine(mockSessions, translator, mockProvider);
+
+    const outputs = await engine.handle({
+      phone: '5511999998888',
+      externalMessageId: 'msg_audio',
+      type: CanonicalInputType.AUDIO,
+      media: { url: 'https://example.com/audio.ogg' },
+      receivedAt: new Date(),
+    });
+
+    assert.equal(outputs.length, 1);
+    assert.equal(outputs[0].type, CanonicalOutputType.BUTTONS);
+    assert.match(outputs[0].text, /Áudio recebido/);
   });
 
   it('should seamlessly restart session when continueChat throws 404 Session Not Found', async () => {

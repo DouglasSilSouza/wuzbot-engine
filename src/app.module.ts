@@ -7,12 +7,7 @@ import { ContextModule } from './modules/context/context.module';
 import { TranslationModule } from './modules/translation/translation.module';
 import { TypebotModule } from './modules/typebot/typebot.module';
 import { WuzapiModule } from './modules/wuzapi/wuzapi.module';
-import { WuzMindModule } from './modules/wuzmind/wuzmind.module';
 import { CommandsModule } from './modules/commands/commands.module';
-import { HumanBehaviorModule } from './modules/human-behavior/human-behavior.module';
-import { RoutingModule } from './modules/routing/routing.module';
-import { RecoveryModule } from './modules/recovery/recovery.module';
-import { MediaRoutingModule } from './modules/media-routing/media-routing.module';
 import { HealthController } from './modules/common/health/health.controller';
 import { TechnicalSessionEntity } from './modules/sessions/session.entity';
 import { IdempotencyEntity, TechnicalAuditEntity } from './modules/sessions/technical.entities';
@@ -38,12 +33,7 @@ import { WuzbotContextEntity } from './modules/context/context.entity';
     }),
     CommonModule,
     CommandsModule,
-    HumanBehaviorModule,
-    WuzMindModule,
     ContextModule,
-    RoutingModule,
-    RecoveryModule,
-    MediaRoutingModule,
     SessionsModule,
     TranslationModule,
     TypebotModule,

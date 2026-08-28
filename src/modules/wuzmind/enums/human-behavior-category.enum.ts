@@ -1,9 +1,0 @@
-export enum HumanBehaviorCategoryEnum {
-  GREETING = 'GREETING',
-  THANKS = 'THANKS',
-  LAUGHTER = 'LAUGHTER',
-  FAREWELL = 'FAREWELL',
-  CHAT = 'CHAT',
-  CONFIRMATION = 'CONFIRMATION',
-  OTHER = 'OTHER',
-}

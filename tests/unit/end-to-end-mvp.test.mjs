@@ -60,20 +60,14 @@ describe('End-to-End MVP Conversation Flow (Text, List, Image)', () => {
     sessionManager = new SessionManager(sessionStore, provider);
 
     const globalCommands = { detect: () => ({ isGlobalCommand: false }) };
-    const intentRouter = { evaluate: async () => ({ shouldRoute: false }) };
-    const mediaRouter = { classifyAndRoute: async () => ({}) };
-    const contextManager = { setLastIntent: async () => ({}) };
-    const contextSync = { clearBoth: async () => {}, syncToRemote: async () => {} };
+    const contextManager = { resetContext: async () => ({}) };
 
     conversationEngine = new ConversationEngine(
       sessionManager,
       translator,
       provider,
       globalCommands,
-      mediaRouter,
       contextManager,
-      contextSync,
-      intentRouter,
     );
     webhookProcessor = new WebhookProcessor(adapter, conversationEngine, idempotencyStore, phoneLock);
   });

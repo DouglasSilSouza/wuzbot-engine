@@ -9,12 +9,7 @@ import {
 import { MessageTranslator } from '../translation/message-translator.service';
 import { SessionManager } from '../sessions/session-manager.service';
 import { GlobalCommandService } from '../commands/global-command.service';
-import { WuzMindMediaRoutingService } from '../media-routing/wuzmind-media-routing.service';
 import { ContextManagerService } from '../context/context-manager.service';
-import { WuzMindContextSyncService } from '../context/wuzmind-context-sync.service';
-import { IntentRoutingService } from '../routing/intent-routing.service';
-
-export const WUZMIND_EVALUATE_MARKER = '__WUZMIND_EVALUATE__';
 
 @Injectable()
 export class ConversationEngine {
@@ -25,10 +20,7 @@ export class ConversationEngine {
     private readonly translator: MessageTranslator,
     @Inject(CONVERSATION_PROVIDER) private readonly provider: ConversationProvider,
     private readonly globalCommands: GlobalCommandService,
-    private readonly mediaRouter: WuzMindMediaRoutingService,
     private readonly contextManager: ContextManagerService,
-    private readonly contextSync: WuzMindContextSyncService,
-    private readonly intentRouter: IntentRoutingService,
   ) {}
 
   async handle(input: CanonicalUserInput): Promise<CanonicalOutput[]> {
@@ -41,14 +33,14 @@ export class ConversationEngine {
     if (globalCmd.isGlobalCommand && globalCmd.command) {
       if (globalCmd.command === 'MENU') {
         this.logger.log(`[GLOBAL_COMMAND] Executing MENU reset for ${input.phone}`);
-        await this.contextSync.clearBoth(input.phone);
+        await this.contextManager.resetContext(input.phone);
         const { initialOutputs } = await this.sessions.resetSession(input.phone);
         return initialOutputs.map((output) => this.translator.fromTypebot(output));
       }
 
       if (globalCmd.command === 'SAIR') {
         this.logger.log(`[GLOBAL_COMMAND] Executing SAIR session termination for ${input.phone}`);
-        await this.contextSync.clearBoth(input.phone);
+        await this.contextManager.resetContext(input.phone);
         const existing = await this.sessions.findByPhone(input.phone);
         if (existing) {
           existing.status = 'EXPIRED';
@@ -58,7 +50,7 @@ export class ConversationEngine {
             type: CanonicalOutputType.TEXT,
             text:
               globalCmd.responseMessage ??
-              'Sua sessão foi encerrada com sucesso. Quando quiser voltar, basta mandar uma mensagem!',
+              'Sua sessão foi encerrada com sucesso. Quando quiser voltar, basta mandar uma mensagem ou digitar *MENU*!',
           },
         ];
       }
@@ -70,7 +62,7 @@ export class ConversationEngine {
             type: CanonicalOutputType.TEXT,
             text:
               globalCmd.responseMessage ??
-              '📌 *Comandos Rápidos Disponíveis:*\n• *MENU*: Volta ao início.\n• *SAIR*: Encerra o atendimento.',
+              '📌 *Comandos Rápidos Disponíveis:*\n• *MENU*: Volta ao início do atendimento.\n• *SAIR*: Encerra o atendimento atual.\n• *AJUDA*: Exibe esta mensagem de ajuda.',
           },
         ];
       }
@@ -88,31 +80,30 @@ export class ConversationEngine {
     }
 
     // ==========================================
-    // 2. Classificação de Mídias Recebidas Fora de Fluxo
+    // 2. Tratamento Determinístico de Áudio
     // ==========================================
-    if (
-      input.type !== CanonicalInputType.TEXT &&
-      input.type !== CanonicalInputType.BUTTON_REPLY &&
-      input.type !== CanonicalInputType.LIST_REPLY
-    ) {
-      const mediaResult = await this.mediaRouter.classifyAndRoute(input);
-      if (mediaResult.userOutputs && mediaResult.userOutputs.length > 0) {
-        return mediaResult.userOutputs;
-      }
+    if (input.type === CanonicalInputType.AUDIO) {
+      this.logger.log(`[AUDIO_HANDLER] Audio message received from ${input.phone}`);
+      return [
+        {
+          type: CanonicalOutputType.BUTTONS,
+          text: '🎙️ *Áudio recebido!*\n\nPara agilizar seu atendimento, por favor selecione uma opção ou envie em texto:',
+          options: [
+            { id: 'btn_menu_principal', label: 'Menu Principal', value: 'MENU' },
+            { id: 'btn_ajuda', label: 'Ajuda', value: 'AJUDA' },
+          ],
+        },
+      ];
     }
 
     const existing = await this.sessions.findByPhone(input.phone);
 
     // ==========================================
-    // 3. Usuário Sem Sessão Ativa
+    // 3. Usuário Sem Sessão Ativa ➔ Inicia Sessão no Typebot
     // ==========================================
     if (!existing?.typebotSessionId || existing.status !== 'ACTIVE') {
-      this.logger.log(`Starting new session for phone ${input.phone}`);
-
-      // Início Padrão do Typebot — a IA NÃO é acionada aqui.
-      // O fluxo é sempre controlado pelo Typebot (máquina de estados determinística).
+      this.logger.log(`Starting new Typebot session for phone ${input.phone}`);
       const { initialOutputs } = await this.sessions.startSession(input.phone);
-      await this.contextSync.syncToRemote(input.phone);
       return initialOutputs.map((output) => this.translator.fromTypebot(output));
     }
 
@@ -126,46 +117,6 @@ export class ConversationEngine {
       const outputs = await this.provider.sendInput(existing.typebotSessionId, input);
       await this.sessions.touch(input.phone);
 
-      // 4.1. IA acionada APÓS o Typebot enviar uma informação no fluxo.
-      // O Typebot, no próprio fluxo, pode inserir o marcador __WUZMIND_EVALUATE__
-      // para sinalizar que a IA deve processar/interpretar a informação recebida.
-      // Ex.: o Typebot coletou os dados de uma compra e pede à IA montar o resumo.
-      const needsAiEvaluation = outputs.some(
-        (out) => out.type === CanonicalOutputType.TEXT && out.text?.includes(WUZMIND_EVALUATE_MARKER),
-      );
-
-      if (needsAiEvaluation && rawText.length > 0) {
-        this.logger.log(
-          `[WUZMIND_EVALUATE] Typebot solicitou avaliação da IA após enviar informação no fluxo para "${rawText}"`,
-        );
-        const routeDecision = await this.intentRouter.evaluate(input.phone, rawText);
-
-        if (routeDecision.shouldRoute && routeDecision.mapped) {
-          this.logger.log(
-            `[WUZMIND_REDIRECT] IA mapeou a informação para o fluxo ${routeDecision.mapped.targetFlow}`,
-          );
-          await this.sessions.resetSession(input.phone);
-          const { initialOutputs } = await this.sessions.startSession(input.phone, {
-            prefilledVariables: routeDecision.mapped.prefilledVariables,
-          });
-          await this.contextManager.setLastIntent(input.phone, routeDecision.mapped.intent);
-          await this.contextSync.syncToRemote(input.phone);
-          return initialOutputs.map((output) => this.translator.fromTypebot(output));
-        }
-
-        // Sem roteamento — repassa a resposta do Typebot (sem o marcador).
-        this.logger.log(`[WUZMIND_EVALUATE] IA não mapeou a informação. Repassando resposta do Typebot.`);
-        return outputs
-          .filter((out) => !(out.type === CanonicalOutputType.TEXT && out.text?.includes(WUZMIND_EVALUATE_MARKER)))
-          .map((output) => this.translator.fromTypebot(output));
-      }
-
-      // 4.2. Sem acionamento de IA para "redisplay".
-      // Se o usuário digita texto livre que não corresponde às opções do Typebot,
-      // apenas re-envia as opções originais (o próprio Typebot já cuida disso na
-      // máquina de estados). NÃO há recovery/redisplay via IA nem auto-avanço por intenção.
-
-      await this.contextSync.syncToRemote(input.phone);
       return outputs.map((output) => this.translator.fromTypebot(output));
     } catch (error) {
       if (
@@ -176,14 +127,9 @@ export class ConversationEngine {
           `Session ${existing.typebotSessionId} expired or not found. Restarting session for ${input.phone}.`,
         );
         const { initialOutputs } = await this.sessions.resetSession(input.phone);
-        await this.contextSync.syncToRemote(input.phone);
         return initialOutputs.map((output) => this.translator.fromTypebot(output));
       }
 
-      // ==========================================
-      // 5. Falha real do Typebot (erro técnico) — apenas informa o usuário.
-      // NÃO aciona a IA para redisplay/roteamento.
-      // ==========================================
       this.logger.error(
         `[TYPEBOT_ERROR] Falha ao continuar sessão ${existing.typebotSessionId} para ${input.phone}: ${error}`,
       );
