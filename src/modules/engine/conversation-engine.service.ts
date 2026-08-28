@@ -11,6 +11,8 @@ import { SessionManager } from '../sessions/session-manager.service';
 import { GlobalCommandService } from '../commands/global-command.service';
 import { ContextManagerService } from '../context/context-manager.service';
 
+export const MAX_CONSECUTIVE_INVALID_ATTEMPTS = 3;
+
 @Injectable()
 export class ConversationEngine {
   private readonly logger = new Logger(ConversationEngine.name);
@@ -38,19 +40,17 @@ export class ConversationEngine {
         return initialOutputs.map((output) => this.translator.fromTypebot(output));
       }
 
+      // Regra: Palavra "sair" encerra a sessão
       if (globalCmd.command === 'SAIR') {
         this.logger.log(`[GLOBAL_COMMAND] Executing SAIR session termination for ${input.phone}`);
         await this.contextManager.resetContext(input.phone);
-        const existing = await this.sessions.findByPhone(input.phone);
-        if (existing) {
-          existing.status = 'EXPIRED';
-        }
+        await this.sessions.expireSession(input.phone);
         return [
           {
             type: CanonicalOutputType.TEXT,
             text:
               globalCmd.responseMessage ??
-              'Sua sessão foi encerrada com sucesso. Quando quiser voltar, basta mandar uma mensagem ou digitar *MENU*!',
+              '👋 *Atendimento encerrado com sucesso.*\n\nQuando quiser iniciar uma nova conversa, basta mandar uma mensagem ou digitar *MENU*!',
           },
         ];
       }
@@ -87,7 +87,7 @@ export class ConversationEngine {
       return [
         {
           type: CanonicalOutputType.BUTTONS,
-          text: '🎙️ *Áudio recebido!*\n\nPara agilizar seu atendimento, por favor selecione uma opção ou envie em texto:',
+          text: '🎙️ *Áudio recebido!*\n\nPara agilizar seu atendimento, por favor selecione uma opção ou envie sua solicitação em texto:',
           options: [
             { id: 'btn_menu_principal', label: 'Menu Principal', value: 'MENU' },
             { id: 'btn_ajuda', label: 'Ajuda', value: 'AJUDA' },
@@ -96,10 +96,11 @@ export class ConversationEngine {
       ];
     }
 
+    // Regra: Mais de 30 minutos inativo encerra sessão (findByPhone já valida o TTL de 30min)
     const existing = await this.sessions.findByPhone(input.phone);
 
     // ==========================================
-    // 3. Usuário Sem Sessão Ativa ➔ Inicia Sessão no Typebot
+    // 3. Usuário Sem Sessão Ativa (ou Expirada por Inatividade > 30min) ➔ Inicia Nova Sessão
     // ==========================================
     if (!existing?.typebotSessionId || existing.status !== 'ACTIVE') {
       this.logger.log(`Starting new Typebot session for phone ${input.phone}`);
@@ -117,6 +118,9 @@ export class ConversationEngine {
       const outputs = await this.provider.sendInput(existing.typebotSessionId, input);
       await this.sessions.touch(input.phone);
 
+      // Reset de tentativas inválidas após interação bem-sucedida
+      await this.sessions.resetInvalidAttempts(input.phone);
+
       return outputs.map((output) => this.translator.fromTypebot(output));
     } catch (error) {
       if (
@@ -124,20 +128,40 @@ export class ConversationEngine {
         (error as { status?: number })?.status === 404
       ) {
         this.logger.warn(
-          `Session ${existing.typebotSessionId} expired or not found. Restarting session for ${input.phone}.`,
+          `Session ${existing.typebotSessionId} expired or not found in Typebot. Restarting session for ${input.phone}.`,
         );
         const { initialOutputs } = await this.sessions.resetSession(input.phone);
         return initialOutputs.map((output) => this.translator.fromTypebot(output));
       }
 
+      // Regra: Máximo 3 mensagens consecutivas fora do fluxo / com erro encerra a sessão
+      const currentAttempts = await this.sessions.recordInvalidAttempt(input.phone);
+      this.logger.warn(
+        `[TYPEBOT_INVALID_ATTEMPT] Attempt ${currentAttempts}/${MAX_CONSECUTIVE_INVALID_ATTEMPTS} for ${input.phone}`,
+      );
+
+      if (currentAttempts >= MAX_CONSECUTIVE_INVALID_ATTEMPTS) {
+        this.logger.log(`[SESSION_EXPIRED] Exceeded 3 invalid attempts. Terminating session for ${input.phone}.`);
+        await this.contextManager.resetContext(input.phone);
+        await this.sessions.expireSession(input.phone);
+        return [
+          {
+            type: CanonicalOutputType.TEXT,
+            text:
+              '⚠️ *Sessão encerrada por excesso de tentativas fora de fluxo.* (3/3)\n\nQuando desejar iniciar um novo atendimento, basta digitar *MENU*.',
+          },
+        ];
+      }
+
       this.logger.error(
         `[TYPEBOT_ERROR] Falha ao continuar sessão ${existing.typebotSessionId} para ${input.phone}: ${error}`,
       );
+
       return [
         {
           type: CanonicalOutputType.TEXT,
           text:
-            '⚠️ Ocorreu um erro ao processar sua mensagem. Tente novamente ou digite *MENU* para reiniciar o atendimento.',
+            `⚠️ Opção não reconhecida (Tentativa ${currentAttempts} de ${MAX_CONSECUTIVE_INVALID_ATTEMPTS}). Por favor escolha uma das opções ou digite *MENU* para reiniciar.`,
         },
       ];
     }

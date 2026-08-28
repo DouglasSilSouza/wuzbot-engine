@@ -12,8 +12,19 @@ const createEngine = (mockSessions, translator, mockProvider, overrides = {}) =>
     resetContext: async () => ({}),
   };
 
+  const defaultMockSessions = {
+    findByPhone: async () => null,
+    startSession: async () => ({ session: {}, initialOutputs: [] }),
+    resetSession: async () => ({ session: {}, initialOutputs: [] }),
+    expireSession: async () => {},
+    recordInvalidAttempt: async () => 1,
+    resetInvalidAttempts: async () => {},
+    touch: async () => {},
+    ...mockSessions,
+  };
+
   return new ConversationEngine(
-    mockSessions,
+    defaultMockSessions,
     translator,
     mockProvider,
     globalCommands,
@@ -82,6 +93,7 @@ describe('ConversationEngine', () => {
       touch: async () => {
         touchCalled = true;
       },
+      resetInvalidAttempts: async () => {},
     };
 
     const mockProvider = {
@@ -112,11 +124,13 @@ describe('ConversationEngine', () => {
     assert.equal(outputs[0].text, 'Você escolheu Opção 1');
   });
 
-  it('should handle audio messages deterministically', async () => {
+  it('should terminate session when user sends SAIR command', async () => {
+    let expiredPhone = null;
     const mockSessions = {
-      findByPhone: async () => null,
-      startSession: async () => ({ session: {}, initialOutputs: [] }),
-      touch: async () => {},
+      findByPhone: async () => ({ status: 'ACTIVE' }),
+      expireSession: async (phone) => {
+        expiredPhone = phone;
+      },
     };
 
     const mockProvider = {
@@ -129,59 +143,75 @@ describe('ConversationEngine', () => {
 
     const outputs = await engine.handle({
       phone: '5511999998888',
-      externalMessageId: 'msg_audio',
-      type: CanonicalInputType.AUDIO,
-      media: { url: 'https://example.com/audio.ogg' },
+      externalMessageId: 'msg_sair',
+      type: CanonicalInputType.TEXT,
+      text: 'sair',
       receivedAt: new Date(),
     });
 
+    assert.equal(expiredPhone, '5511999998888');
     assert.equal(outputs.length, 1);
-    assert.equal(outputs[0].type, CanonicalOutputType.BUTTONS);
-    assert.match(outputs[0].text, /Áudio recebido/);
+    assert.match(outputs[0].text, /encerrad[ao] com sucesso/i);
   });
 
-  it('should seamlessly restart session when continueChat throws 404 Session Not Found', async () => {
-    let resetSessionCalled = false;
+  it('should terminate session after 3 consecutive invalid attempts', async () => {
+    let expiredPhone = null;
+    let attemptCounter = 0;
 
     const mockSessions = {
-      findByPhone: async (phone) => ({
+      findByPhone: async () => ({
         id: 1,
-        phone,
-        typebotSessionId: 'sess_expired_999',
+        phone: '5511999998888',
+        typebotSessionId: 'sess_active_123',
         status: 'ACTIVE',
       }),
-      resetSession: async (phone) => {
-        resetSessionCalled = true;
-        return {
-          session: { id: 1, phone, typebotSessionId: 'sess_renewed_111', status: 'ACTIVE' },
-          initialOutputs: [
-            { type: CanonicalOutputType.TEXT, text: 'Sua sessão anterior expirou. Bem vindo novamente!' },
-          ],
-        };
+      recordInvalidAttempt: async () => ++attemptCounter,
+      expireSession: async (phone) => {
+        expiredPhone = phone;
       },
-      touch: async () => {},
     };
 
     const mockProvider = {
-      createSession: async () => ({ sessionId: 'sess_renewed_111' }),
+      createSession: async () => ({ sessionId: 'sess_new' }),
       sendInput: async () => {
-        throw new NotFoundException('Session not found');
+        throw new Error('Invalid input in Typebot');
       },
     };
 
     const translator = new MessageTranslator();
     const engine = createEngine(mockSessions, translator, mockProvider);
 
-    const outputs = await engine.handle({
+    // Tentativa 1
+    const out1 = await engine.handle({
       phone: '5511999998888',
-      externalMessageId: 'msg_03',
+      externalMessageId: 'msg_err1',
       type: CanonicalInputType.TEXT,
-      text: 'Olá',
+      text: 'invalido 1',
       receivedAt: new Date(),
     });
+    assert.match(out1[0].text, /Tentativa 1 de 3/);
+    assert.equal(expiredPhone, null);
 
-    assert.equal(resetSessionCalled, true);
-    assert.equal(outputs.length, 1);
-    assert.equal(outputs[0].text, 'Sua sessão anterior expirou. Bem vindo novamente!');
+    // Tentativa 2
+    const out2 = await engine.handle({
+      phone: '5511999998888',
+      externalMessageId: 'msg_err2',
+      type: CanonicalInputType.TEXT,
+      text: 'invalido 2',
+      receivedAt: new Date(),
+    });
+    assert.match(out2[0].text, /Tentativa 2 de 3/);
+    assert.equal(expiredPhone, null);
+
+    // Tentativa 3 (Encerra)
+    const out3 = await engine.handle({
+      phone: '5511999998888',
+      externalMessageId: 'msg_err3',
+      type: CanonicalInputType.TEXT,
+      text: 'invalido 3',
+      receivedAt: new Date(),
+    });
+    assert.match(out3[0].text, /Sessão encerrada por excesso de tentativas/);
+    assert.equal(expiredPhone, '5511999998888');
   });
 });
