@@ -96,6 +96,18 @@ export class ConversationEngine {
       ];
     }
 
+    // ==========================================
+    // 2.5 Tratamento Determinístico de Imagem e Comprovantes (Envio para o n8n OCR & IA)
+    // ==========================================
+    if (
+      input.type === CanonicalInputType.IMAGE ||
+      (input.type === CanonicalInputType.DOCUMENT &&
+        (input.media?.mimeType?.includes('image') || input.media?.mimeType?.includes('pdf')))
+    ) {
+      this.logger.log(`[RECEIPT_HANDLER] Image/Receipt received from ${input.phone}. Forwarding to n8n...`);
+      return await this.handleReceiptMedia(input);
+    }
+
     // Regra: Mais de 30 minutos inativo encerra sessão (findByPhone já valida o TTL de 30min)
     const existing = await this.sessions.findByPhone(input.phone);
 
@@ -165,5 +177,138 @@ export class ConversationEngine {
         },
       ];
     }
+  }
+
+  private async handleReceiptMedia(input: CanonicalUserInput): Promise<CanonicalOutput[]> {
+    const n8nReceiptUrl =
+      process.env.N8N_RECEIPT_WEBHOOK_URL || 'https://webhook-n8n.dsilvamoda.cloud/webhook/envio_comprovante';
+    const n8nToken = process.env.N8N_API_KEY;
+
+    let base64Data: string | null = null;
+    let mimeType = input.media?.mimeType || 'image/jpeg';
+
+    // Se houver URL de mídia, tenta fazer o download e converter em base64
+    if (input.media?.url) {
+      try {
+        if (input.media.url.startsWith('data:')) {
+          const match = input.media.url.match(/^data:(.*?);base64,(.*)$/);
+          if (match) {
+            mimeType = match[1];
+            base64Data = match[2];
+          }
+        } else {
+          const res = await fetch(input.media.url);
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer());
+            base64Data = buf.toString('base64');
+            mimeType = res.headers.get('content-type') || mimeType;
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`[RECEIPT_HANDLER] Could not download media url ${input.media.url}: ${err}`);
+      }
+    }
+
+    const metadataObj =
+      input.metadata && typeof input.metadata === 'object'
+        ? (input.metadata as Record<string, unknown>)
+        : {};
+
+    const payload = {
+      ...metadataObj,
+      phone: input.phone,
+      senderPhone: input.phone,
+      base64File: base64Data,
+      mediaUrl: input.media?.url || null,
+      mimeType,
+      caption: input.media?.caption || input.text || '',
+      messageId: input.externalMessageId,
+      timestamp: input.receivedAt,
+    };
+
+    try {
+      this.logger.log(`[RECEIPT_HANDLER] Dispatching receipt payload to n8n: ${n8nReceiptUrl}`);
+      const response = await fetch(n8nReceiptUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(n8nToken ? { 'X-N8N-API-KEY': n8nToken } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const responseText = await response.text().catch(() => '');
+        let responseData: any = null;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = responseText;
+        }
+
+        let aiText = '';
+        if (Array.isArray(responseData) && responseData.length > 0) {
+          const first = responseData[0];
+          aiText =
+            first?.output ||
+            first?.text ||
+            first?.message ||
+            first?.response?.text ||
+            (typeof first === 'string' ? first : '');
+        } else if (responseData && typeof responseData === 'object') {
+          aiText =
+            responseData.output ||
+            responseData.text ||
+            responseData.message ||
+            responseData.response?.text ||
+            '';
+        } else if (typeof responseData === 'string') {
+          aiText = responseData;
+        }
+
+        if (aiText && aiText.trim()) {
+          this.logger.log(`[RECEIPT_HANDLER] AI analysis received from n8n: ${aiText.substring(0, 80)}...`);
+
+          // Se houver uma sessão ativa no Typebot, envia a transcrição/resultado da IA para o Typebot continuar o fluxo
+          const existing = await this.sessions.findByPhone(input.phone);
+          if (existing?.typebotSessionId && existing.status === 'ACTIVE') {
+            try {
+              this.logger.log(`[RECEIPT_HANDLER] Forwarding AI text result to Typebot session ${existing.typebotSessionId}`);
+              const typebotOutputs = await this.provider.sendInput(existing.typebotSessionId, {
+                ...input,
+                type: CanonicalInputType.TEXT,
+                text: aiText,
+              });
+              if (typebotOutputs && typebotOutputs.length > 0) {
+                return typebotOutputs.map((output) => this.translator.fromTypebot(output));
+              }
+            } catch (err) {
+              this.logger.warn(`[RECEIPT_HANDLER] Could not forward AI result to Typebot session: ${err}`);
+            }
+          }
+
+          // Retorna diretamente o texto da IA caso o Typebot não tenha outputs adicionais
+          return [
+            {
+              type: CanonicalOutputType.TEXT,
+              text: aiText,
+            },
+          ];
+        }
+      } else {
+        const errBody = await response.text().catch(() => '');
+        this.logger.error(`[RECEIPT_HANDLER] n8n returned error HTTP ${response.status}: ${errBody}`);
+      }
+    } catch (error) {
+      this.logger.error(`[RECEIPT_HANDLER] Error sending receipt to n8n: ${error}`);
+    }
+
+    // Resposta padrão caso o n8n processe de forma assíncrona ou sem retorno de texto
+    return [
+      {
+        type: CanonicalOutputType.TEXT,
+        text: '📸 *Comprovante recebido com sucesso!*\n\nNossa inteligência artificial está analisando as informações do seu pagamento. Em instantes você receberá a confirmação por aqui.',
+      },
+    ];
   }
 }
