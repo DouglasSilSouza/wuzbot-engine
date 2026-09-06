@@ -133,6 +133,17 @@ export class ConversationEngine {
       // Reset de tentativas inválidas após interação bem-sucedida
       await this.sessions.resetInvalidAttempts(input.phone);
 
+      const isEndMessage = outputs.some(
+        (o) => o.text && /atendimento encerrado|encerrado com sucesso/i.test(o.text),
+      );
+      if (isEndMessage) {
+        this.logger.log(
+          `[CONVERSATION_END] Terminal closure message detected. Expiring session for ${input.phone}`,
+        );
+        await this.contextManager.resetContext(input.phone);
+        await this.sessions.expireSession(input.phone);
+      }
+
       return outputs.map((output) => this.translator.fromTypebot(output));
     } catch (error) {
       if (

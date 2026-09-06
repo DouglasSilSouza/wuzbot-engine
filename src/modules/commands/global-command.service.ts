@@ -21,12 +21,12 @@ export class GlobalCommandService {
   ];
 
   private readonly SAIR_PATTERNS = [
-    /^(\/)?sair$/i,
-    /^(\/)?cancelar$/i,
-    /^(\/)?(🚪\s*)?encerrar(\s+atendimento)?$/i,
-    /^(\/)?(🚪\s*)?finalizar(\s+atendimento)?$/i,
-    /^(\/)?tchau$/i,
-    /^(\/)?parar$/i,
+    /^(\/)?sair.*$/i,
+    /^(\/)?cancelar.*$/i,
+    /^(\/)?(🚪\s*)?encerrar.*$/i,
+    /^(\/)?(🚪\s*)?finalizar.*$/i,
+    /^(\/)?tchau.*$/i,
+    /^(\/)?parar.*$/i,
   ];
 
   private readonly AJUDA_PATTERNS = [
