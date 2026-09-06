@@ -23,8 +23,8 @@ export class GlobalCommandService {
   private readonly SAIR_PATTERNS = [
     /^(\/)?sair$/i,
     /^(\/)?cancelar$/i,
-    /^(\/)?encerrar$/i,
-    /^(\/)?finalizar$/i,
+    /^(\/)?(🚪\s*)?encerrar(\s+atendimento)?$/i,
+    /^(\/)?(🚪\s*)?finalizar(\s+atendimento)?$/i,
     /^(\/)?tchau$/i,
     /^(\/)?parar$/i,
   ];
