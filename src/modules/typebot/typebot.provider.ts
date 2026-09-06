@@ -11,7 +11,7 @@ interface TypebotResponse {
 @Injectable()
 export class TypebotProvider implements ConversationProvider {
   private readonly logger = new Logger(TypebotProvider.name);
-  private readonly baseUrl = (process.env.TYPEBOT_BASE_URL ?? '').replace(/\/$/, '');
+  private readonly baseUrl = (process.env.TYPEBOT_VIEWER_URL ?? process.env.TYPEBOT_BASE_URL ?? '').replace(/\/$/, '');
   private readonly publicId = process.env.TYPEBOT_PUBLIC_ID ?? '';
   private readonly token = process.env.TYPEBOT_TOKEN ?? process.env.TYPEBOT_API_KEY;
 
