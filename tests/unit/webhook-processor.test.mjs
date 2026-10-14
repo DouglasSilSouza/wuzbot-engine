@@ -8,6 +8,7 @@ describe('WebhookProcessor', () => {
     let sentMessages = [];
     let markedIdempotency = null;
 
+    let presenceEvents = [];
     const mockWuzapi = {
       validateWebhookSecret: () => {},
       normalizeWebhook: (payload) => ({
@@ -17,6 +18,9 @@ describe('WebhookProcessor', () => {
         text: payload.text_content,
         receivedAt: new Date(),
       }),
+      setChatPresence: async (phone, state) => {
+        presenceEvents.push({ phone, state });
+      },
       send: async (phone, output) => {
         sentMessages.push({ phone, output });
       },
@@ -55,6 +59,9 @@ describe('WebhookProcessor', () => {
       text_content: 'Olá',
     });
 
+    assert.equal(presenceEvents.length, 2);
+    assert.equal(presenceEvents[0].state, 'composing');
+    assert.equal(presenceEvents[1].state, 'paused');
     assert.equal(sentMessages.length, 2);
     assert.equal(sentMessages[0].phone, '5511999998888');
     assert.equal(sentMessages[0].output.text, 'Resposta 1');
@@ -75,6 +82,7 @@ describe('WebhookProcessor', () => {
         text: 'Duplicate',
         receivedAt: new Date(),
       }),
+      setChatPresence: async () => {},
       send: async () => {},
     };
 

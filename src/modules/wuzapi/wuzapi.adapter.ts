@@ -472,6 +472,33 @@ export class WuzapiAdapter {
     return withoutDevice.replace(/\D/g, '');
   }
 
+  async setChatPresence(phone: string, state: 'composing' | 'paused' = 'composing'): Promise<void> {
+    const cleanPhone = this.normalizePhone(phone);
+    if (!cleanPhone) return;
+
+    const targetUrl = `${this.baseUrl}/chat/presence`;
+    try {
+      this.logger.debug(`[Wuzapi Presence] Setting state "${state}" for phone ${cleanPhone}`);
+      const res = await fetch(targetUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          token: this.token ?? '',
+        },
+        body: JSON.stringify({
+          Phone: cleanPhone,
+          State: state,
+        }),
+      });
+
+      if (!res.ok) {
+        this.logger.warn(`[Wuzapi Presence] Failed with HTTP ${res.status}`);
+      }
+    } catch (err) {
+      this.logger.warn(`[Wuzapi Presence] Error setting presence for ${cleanPhone}: ${(err as Error).message}`);
+    }
+  }
+
   private async toDataUrl(url: string): Promise<string> {
     if (url.startsWith('data:')) return url;
     const response = await fetch(url);
@@ -483,5 +510,6 @@ export class WuzapiAdapter {
     return `data:${mimeType};base64,${base64}`;
   }
 }
+
 
 

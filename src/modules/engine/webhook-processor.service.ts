@@ -36,6 +36,9 @@ export class WebhookProcessor {
         return;
       }
 
+      // Notifica presença "digitando..." (composing) no WhatsApp enquanto a IA processa
+      await this.wuzapi.setChatPresence(input.phone, 'composing');
+
       const outputs = await this.engine.handle(input);
       this.logger.log(`Engine returned ${outputs.length} outputs for phone ${input.phone}`);
 
@@ -50,6 +53,8 @@ export class WebhookProcessor {
       for (const output of outputs) {
         await this.wuzapi.send(input.phone, output);
       }
+
+      await this.wuzapi.setChatPresence(input.phone, 'paused');
 
       await this.idempotency.markProcessed(input.externalMessageId, input.phone, input.externalMessageId);
       this.logger.log(`Successfully processed and recorded message ${input.externalMessageId}`);
