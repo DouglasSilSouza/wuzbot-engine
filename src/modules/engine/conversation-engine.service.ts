@@ -80,31 +80,19 @@ export class ConversationEngine {
     }
 
     // ==========================================
-    // 2. Tratamento Determinístico de Áudio
-    // ==========================================
-    if (input.type === CanonicalInputType.AUDIO) {
-      this.logger.log(`[AUDIO_HANDLER] Audio message received from ${input.phone}`);
-      return [
-        {
-          type: CanonicalOutputType.BUTTONS,
-          text: '🎙️ *Áudio recebido!*\n\nPara agilizar seu atendimento, por favor selecione uma opção ou envie sua solicitação em texto:',
-          options: [
-            { id: 'btn_menu_principal', label: 'Menu Principal', value: 'MENU' },
-            { id: 'btn_ajuda', label: 'Ajuda', value: 'AJUDA' },
-          ],
-        },
-      ];
-    }
-
-    // ==========================================
-    // 2.5 Tratamento Determinístico de Imagem e Comprovantes (Envio para o n8n OCR & IA)
+    // 2. Tratamento Unificado de Mídias (Áudio, Imagem, Comprovantes, Documentos PDF)
     // ==========================================
     if (
+      input.type === CanonicalInputType.AUDIO ||
       input.type === CanonicalInputType.IMAGE ||
       (input.type === CanonicalInputType.DOCUMENT &&
-        (input.media?.mimeType?.includes('image') || input.media?.mimeType?.includes('pdf')))
+        (input.media?.mimeType?.includes('image') ||
+         input.media?.mimeType?.includes('pdf') ||
+         input.media?.mimeType?.includes('audio') ||
+         input.media?.mimeType?.includes('document') ||
+         input.media?.mimeType?.includes('octet-stream')))
     ) {
-      this.logger.log(`[RECEIPT_HANDLER] Image/Receipt received from ${input.phone}. Forwarding to n8n...`);
+      this.logger.log(`[MEDIA_HANDLER] ${input.type} received from ${input.phone}. Forwarding to n8n AI Analysis...`);
       return await this.handleReceiptMedia(input);
     }
 
@@ -314,11 +302,12 @@ export class ConversationEngine {
       this.logger.error(`[RECEIPT_HANDLER] Error sending receipt to n8n: ${error}`);
     }
 
-    // Resposta padrão caso o n8n processe de forma assíncrona ou sem retorno de texto
+    // Resposta padrão caso o n8n processe de forma assíncrona ou sem retorno imediato de texto
+    const tipoTexto = input.type === CanonicalInputType.AUDIO ? 'Áudio' : (input.type === CanonicalInputType.DOCUMENT ? 'Documento' : 'Comprovante');
     return [
       {
         type: CanonicalOutputType.TEXT,
-        text: '📸 *Comprovante recebido com sucesso!*\n\nNossa inteligência artificial está analisando as informações do seu pagamento. Em instantes você receberá a confirmação por aqui.',
+        text: `📎 *${tipoTexto} recebido com sucesso!*\n\nNossa inteligência artificial está analisando as informações. Em instantes você receberá a confirmação por aqui.`,
       },
     ];
   }
